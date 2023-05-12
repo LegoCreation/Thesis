@@ -12,6 +12,8 @@ os.environ["OPENBLAS_NUM_THREADS"] = str(thread) # export OPENBLAS_NUM_THREADS=4
 os.environ["MKL_NUM_THREADS"] = str(thread) # export MKL_NUM_THREADS=6
 os.environ["VECLIB_MAXIMUM_THREADS"] = str(thread) # export VECLIB_MAXIMUM_THREADS=4
 os.environ["NUMEXPR_NUM_THREADS"] = str(thread) # export NUMEXPR_NUM_THREADS=6
+os.environ['CUDA_VISIBLE_DEVICES'] = '-1'
+os.environ["TF_ENABLE_ONEDNN_OPTS"] = "0"
 from sklearn.model_selection import train_test_split
 from sklearn.kernel_ridge import KernelRidge
 from sklearn.metrics.pairwise import rbf_kernel
@@ -32,11 +34,27 @@ X = np.load("./data/X.npy")
 y = np.loadtxt("./data/E_def2-tzvp.dat")
 
 
+class KRR_benchmark():
+    def __init__(self, avg_mae, avg_training_time_cpu, avg_testing_time_cpu, 
+                 avg_training_time_wall, avg_testing_time_wall, library, kernel, 
+                 sample_size, sigma, alpha, seed = 42):
+        self.avg_mae = avg_mae
+        self.avg_training_time_cpu = avg_training_time_cpu
+        self.avg_testing_time_cpu = avg_testing_time_cpu
+        self.avg_training_time_wall = avg_training_time_wall
+        self.avg_testing_time_wall = avg_testing_time_wall
+        self.library = library
+        self.kernel = kernel
+        self.sample_size = sample_size
+        self.sigma = sigma
+        self.alpha = alpha
+        self.seed = seed
+
 # In[3]:
 
 
 class KRR():
-    def __init__(self, alpha=1e-8, library = "qml", sigma = 720, kernel='gaussian'):
+    def __init__(self, alpha=1e-8, library = "qml", sigma = 720, kernel='gaussian', seed = 42):
         self.alpha = alpha
         self.sigma = sigma
         self.kernel = kernel
@@ -47,8 +65,10 @@ class KRR():
         self.avg_testing_time_cpu = 0
         self.avg_training_time_wall = 0
         self.avg_testing_time_wall = 0
+        self.seed = seed
 
     def fit(self, X, y):
+        np.random.seed(self.seed)
         self.X_ = X
         self.y_ = y
         start_cpu = time.process_time()
@@ -109,6 +129,8 @@ class KRR():
 
 
 
+sigma = 200
+alpha = 1e-6
 
 krr_array = np.empty((13, 2, 2), dtype=object) 
 for l, kernel in enumerate(["laplacian", "gaussian"]):
@@ -132,118 +154,43 @@ for l, kernel in enumerate(["laplacian", "gaussian"]):
                 X_train = X_copy[:N]
                 y_train = y_copy[:N]
                 avg_mae = 0
-                X_test = X_copy[9001:]
-                y_test = y_copy[9001:]
-                krr_array[i, k, l] = KRR(alpha=1e-8, library = lib, sigma = 720, kernel=kernel)
-                krr_array[i, k, l].fit(X_train, y_train)
-                training_wall_array[i] += krr_array[i, k, l].training_time_wall
-                training_cpu_array[i] += krr_array[i, k, l].training_time_cpu
+                X_test = X_copy[9000:]#Taking remaining 1000 samples
+                y_test = y_copy[9000:]
+                krr_ins = KRR(alpha=alpha, library = lib, sigma = sigma, kernel=kernel, seed = j)
+                krr_ins.fit(X_train, y_train)
+                training_wall_array[i] += krr_ins.training_time_wall
+                training_cpu_array[i] += krr_ins.training_time_cpu
                 
+                #Strictly for evaluation time comparisions. Bad for MAE calculations as training data is used for testing
+                X_test_time = X_copy[:N] 
+                krr_ins.predict(X_test_time)
+                testing_wall_array[i] += krr_ins.testing_time_wall
+                testing_cpu_array[i] += krr_ins.testing_time_cpu
                 
-
-                if N <= 1000:
-                    X_test_n = X_copy[9001:9001+N]
-                    krr_array[i, k, l].predict(X_test_n)
-                    #Indent below left for storing test time for 1000 samples instead of 0
-                    testing_wall_array[i] += krr_array[i, k, l].testing_time_wall
-                    testing_cpu_array[i] += krr_array[i, k, l].testing_time_cpu
-                
-                krr_array[i, k, l].compute_mae(X_test, y_test)
-                mae_array[i] += krr_array[i, k, l].mae
+                krr_ins.compute_mae(X_test, y_test)
+                mae_array[i] += krr_ins.mae
 
                 if j == 10:
-                    krr_array[i, k, l].avg_mae = mae_array[i] /10
-                    krr_array[i, k, l].avg_training_time_wall = training_wall_array[i] /10
-                    krr_array[i, k, l].avg_testing_time_wall = testing_wall_array[i] /10
-                    krr_array[i, k, l].avg_training_time_cpu = training_cpu_array[i] /10
-                    krr_array[i, k, l].avg_testing_time_cpu = testing_cpu_array[i] /10
+                    krr_array[i, k, l] = KRR_benchmark(avg_mae = mae_array[i] /10,
+                                                       avg_training_time_wall = training_wall_array[i] /10, 
+                                                       avg_testing_time_wall = testing_wall_array[i] /10,
+                                                       avg_training_time_cpu = training_cpu_array[i] /10,
+                                                       avg_testing_time_cpu = testing_cpu_array[i] /10,
+                                                       library = lib,
+                                                       kernel = kernel,
+                                                       sample_size = N,
+                                                       sigma = sigma,
+                                                       alpha = alpha,
+                                                       seed = 0)
 
 
 # In[5]:
 
 
-outfile = "/home/ssunar/Thesis/data/output_data/KRR_thread_" + str(thread) + ".npy"
+outfile = "/home/ssunar/Thesis/data/output_data_new/KRR_thread_" + str(thread) + ".npy"
 np.save(outfile, krr_array)
 
 
-# In[11]:
-
-
-# threads = [1, 4, 8, 16]
-# krr_array = np.array([np.load("/home/ssunar/Thesis/data/output_data/KRR_thread_" + str(thread) + ".npy", allow_pickle=True) for thread in threads])
-
-
-# # In[12]:
-
-
-# def plot_avg_mae(krr_array):
-#     fig, axs = plt.subplots(nrows=2, ncols=1, figsize=(8, 10))
-#     kernel_names = ["Laplacian", "Gaussian"]
-#     library_names = ["qml", "scikit-learn"]
-#     for k, kernel_name in enumerate(kernel_names):
-#         for l, library_name in enumerate(library_names):
-#             if k == 0:
-#                 alpha = 1
-#             else:
-#                 alpha = 0.7
-#             avg_mae_array = np.zeros((13,))
-#             for i in range(13):
-#                 avg_mae_array[i] = krr_array[0, i, l, k].avg_mae
-#             axs[k].loglog(np.arange(1, 14), avg_mae_array, label=library_name, alpha = alpha)
-#             axs[k].set_title(f"{kernel_name} Kernel, Threads = {thread}")
-#             axs[k].set_xlabel("Sample Size")
-#             axs[k].set_ylabel("Average MAE")
-#             axs[k].legend()
-#     plt.tight_layout()
-#     plt.show()
-#     plt.savefig("./img/Learning_curve_all.png", dpi = 100)
-
-
-# # In[8]:
-
-
-# plot_avg_mae(krr_array)
-
-
-# # In[13]:
-
-
-# def plot_avg_training(krr_array):
-#     fig, axs = plt.subplots(nrows=4, ncols=2, figsize=(8, 12))
-#     kernel_names = ["Laplacian", "Gaussian"]
-#     library_names = ["qml", "scikit-learn"]
-#     times_names = ["cpu_time", "wall_time"]
-#     threads = [1,4,8,16]
-    
-
-#     for j, thread in enumerate(threads):
-#         for t, time_name in enumerate(times_names):
-#             for l, library_name in enumerate(library_names):
-#                 for k, kernel_name in enumerate(kernel_names):
-#                     avg_training_time = np.zeros((13,))
-#                     for i in range(13):
-#                         if t  == 1:
-#                             avg_training_time[i] = krr_array[j, i, l, k].avg_training_time_wall
-#                         else:
-#                             avg_training_time[i] = krr_array[j, i, l, k].avg_training_time_cpu
-#                     print(time_name, avg_training_time)
-#                     axs[j][t].plot(np.array([2 ** i for i in range(1, 14)]), avg_training_time, label=library_name+"_"+kernel_name, alpha = 0.7)
-#                     axs[j][t].set_title(f"{time_name}, Thread(s) = {thread}")
-#                     axs[j][t].set_xlabel("Sample Size")
-#                     axs[j][t].set_ylabel("Training time")
-#                     axs[j][t].legend()
-#     plt.tight_layout()
-#     plt.show()
-#     plt.savefig("./img/Training_time_nsamples_KRR.png", dpi = 100)
-
-
-# # In[14]:
-
-
-# plot_avg_training(krr_array)
-
-
-# # In[ ]:
 
 
 

@@ -1,5 +1,5 @@
 #!/bin/bash
-for i in $(seq 12 20)
+for i in 2 3 4 20
 do
    echo "Running GPR $i"
    python3 GPR.py "$i"
