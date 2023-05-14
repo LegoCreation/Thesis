@@ -82,7 +82,7 @@ class KRR():
             self.beta = cho_solve(K, y)
         elif self.library == "scikit-learn":
             if self.kernel == 'gaussian':
-                self.krr = KernelRidge(kernel = "rbf", gamma = 1/self.sigma, alpha=self.alpha)
+                self.krr = KernelRidge(kernel = "rbf", gamma = 1/(2*self.sigma**2) , alpha=self.alpha)
             elif self.kernel == 'laplacian':
                 self.krr = KernelRidge(kernel = "laplacian", gamma = 1/self.sigma, alpha=self.alpha)
             self.krr.fit(X, y)
