@@ -16,7 +16,7 @@ import gpflow
 import numpy as np
 import time
 from sklearn.gaussian_process import GaussianProcessRegressor
-from sklearn.gaussian_process.kernels import ConstantKernel, RBF, RationalQuadratic, WhiteKernel
+from sklearn.gaussian_process.kernels import ConstantKernel, RBF, RationalQuadratic, WhiteKernel, PairwiseKernel
 import GPy
 import gpflow
 import pyro
@@ -96,8 +96,8 @@ class GPR:
                 kernel_scikit = self.sigma * RBF(length_scale=self.length_scale) + WhiteKernel(
                     noise_level=self.white_noise, noise_level_bounds=(1e-6, 1e1))
             elif self.kernel == 'laplacian':
-                kernel_scikit = self.sigma * RationalQuadratic(length_scale=self.length_scale,
-                                                          alpha=1.0) + WhiteKernel(noise_level=self.white_noise,
+                kernel_scikit = ConstantKernel(self.sigma, (1e-3, 1e3)) * PairwiseKernel(
+                    metric='laplacian', gamma=1/self.length_scale) + WhiteKernel(noise_level=self.white_noise,
                                                                                    noise_level_bounds=(1e-6, 1e1))
             if self.optimize:
                 self.model = GaussianProcessRegressor(kernel=kernel_scikit,
@@ -172,6 +172,37 @@ class GPR:
         self.training_time_wall = end_wall - start_wall
         self.training_time_cpu = end_cpu - start_cpu
         self.is_fit = True
+
+    def predict(self, X):
+        if not self.is_fit:
+            print("Fit model first")
+        start_time = time.time()
+        start_cpu = time.process_time()
+        start_wall = time.perf_counter()
+        if self.library == 'scikit':
+            y_pred = self.model.predict(X, return_std=False)
+        elif self.library == 'gpy':
+            y_pred, _ = self.model.predict(X)
+        elif self.library == 'gpflow':
+            y_pred, _ = self.model.predict_f(X)
+        elif self.library == 'pyro':
+            with torch.no_grad():
+                y_pred, _ = self.model.forward(torch.from_numpy(X).to(torch.device('cpu')))
+                y_pred = y_pred.detach().numpy()
+#         elif self.library == 'pymc3':
+#             y_pred = self.model.predict(X)
+        end_cpu = time.process_time()
+        end_wall = time.perf_counter()
+
+        self.cpu_time = end_cpu - start_cpu
+        self.testing_time_wall = end_wall - start_wall
+        self.testing_time_cpu = end_cpu - start_cpu
+        return y_pred
+    
+    def compute_mae(self, X, y):
+        y_predicted = self.predict(X)
+        self.mae = np.mean(np.abs(y_predicted - y))
+        return self.mae
 
     def predict(self, X):
         if not self.is_fit:
