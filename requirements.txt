@@ -1,0 +1,9 @@
+GPy==1.10.0
+gpflow==2.8.0
+matplotlib==3.4.2
+numpy==1.22.0
+pyro-ppl==1.8.4
+qml==0.2.1
+scikit-learn==1.0.2
+tensorflow==2.12.0
+torch==1.12.1

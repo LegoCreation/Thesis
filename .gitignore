@@ -1,4 +1,5 @@
 *.log
 
-data/output_data/
-data/output_data_new/
+*.zip
+__pycache__
+data

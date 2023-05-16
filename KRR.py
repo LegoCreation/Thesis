@@ -19,7 +19,6 @@ from sklearn.kernel_ridge import KernelRidge
 from sklearn.metrics.pairwise import rbf_kernel
 import matplotlib.pyplot as plt
 import time
-import pandas as pd
 import numpy as np
 import qml
 from qml.math import cho_solve
@@ -30,8 +29,7 @@ from qml.kernels import laplacian_kernel
 # In[2]:
 
 
-X = np.load("./data/X.npy")
-y = np.loadtxt("./data/E_def2-tzvp.dat")
+
 
 
 class KRR_benchmark():
@@ -54,6 +52,15 @@ class KRR_benchmark():
 
 
 class KRR():
+    """
+    Kernel Ridge Regression model.
+    Args:
+        alpha (float): Regularization parameter (default: 1e-8).
+        library (str): Library used for computations ('qml' or 'scikit-learn') (default: 'qml').
+        sigma (float): Kernel parameter (default: 720).
+        kernel (str): Kernel function to use ('gaussian' or 'laplacian') (default: 'gaussian').
+        seed (int): Random seed (default: 42).
+    """
     def __init__(self, alpha=1e-8, library = "qml", sigma = 720, kernel='gaussian', seed = 42):
         self.alpha = alpha
         self.sigma = sigma
@@ -68,6 +75,16 @@ class KRR():
         self.seed = seed
 
     def fit(self, X, y):
+        """
+        Fit the Kernel Ridge Regression model to the given training data.
+
+        Args:
+            X (array-like): The training input samples.
+            y (array-like): The target values.
+
+        Returns:
+            None
+        """
         np.random.seed(self.seed)
         self.X_ = X
         self.y_ = y
@@ -97,6 +114,15 @@ class KRR():
 
 
     def predict(self, X):
+        """
+        Predict the output for the given input data.
+
+        Args:
+            X (array-like): The input data.
+
+        Returns:
+            y_pred (array-like): The predicted output values.
+        """
         if not self.is_fit:
             print("Fit model first")
         start_cpu = time.process_time()
@@ -119,6 +145,16 @@ class KRR():
         return y_predicted
     
     def compute_mae(self, X, y):
+        """
+        Compute the mean absolute error for the given input data and ground truth.
+
+        Args:
+            X (array-like): The input data.
+            y (array-like): The ground truth values.
+
+        Returns:
+            mae (float): The mean absolute error.
+        """
         y_predicted = self.predict(X)
         self.mae = np.mean(np.abs(y_predicted - y))
         return self.mae
@@ -127,68 +163,70 @@ class KRR():
 # In[4]:
 
 
+if __name__ == "__main__":
+    
+    X = np.load("./data/X.npy")
+    y = np.loadtxt("./data/E_def2-tzvp.dat")
+    sigma = 200
+    alpha = 1e-6
+
+    krr_array = np.empty((13, 2, 2), dtype=object) 
+    for l, kernel in enumerate(["laplacian", "gaussian"]):
+        for k, lib in enumerate(["qml", "scikit-learn"]):
+            mae_array = np.zeros((13,))
+            training_wall_array = np.zeros((13,))
+            testing_wall_array = np.zeros((13,))
+            training_cpu_array = np.zeros((13,))
+            testing_cpu_array = np.zeros((13,))
+            for j in range(1, 11):
+                for i in range(20):
+                    N = pow(2, i+1)
+                    if N > 10000:
+                        break
+                    X_copy = X.copy()
+                    y_copy = y.copy()
+                    np.random.seed(j)
+                    np.random.shuffle(X_copy)
+                    np.random.seed(j)
+                    np.random.shuffle(y_copy)
+                    X_train = X_copy[:N]
+                    y_train = y_copy[:N]
+                    avg_mae = 0
+                    X_test = X_copy[9000:]#Taking remaining 1000 samples
+                    y_test = y_copy[9000:]
+                    krr_ins = KRR(alpha=alpha, library = lib, sigma = sigma, kernel=kernel, seed = j)
+                    krr_ins.fit(X_train, y_train)
+                    training_wall_array[i] += krr_ins.training_time_wall
+                    training_cpu_array[i] += krr_ins.training_time_cpu
+
+                    #Strictly for evaluation time comparisions. Bad for MAE calculations as training data is used for testing
+                    X_test_time = X_copy[:N] 
+                    krr_ins.predict(X_test_time)
+                    testing_wall_array[i] += krr_ins.testing_time_wall
+                    testing_cpu_array[i] += krr_ins.testing_time_cpu
+
+                    krr_ins.compute_mae(X_test, y_test)
+                    mae_array[i] += krr_ins.mae
+
+                    if j == 10:
+                        krr_array[i, k, l] = KRR_benchmark(avg_mae = mae_array[i] /10,
+                                                           avg_training_time_wall = training_wall_array[i] /10, 
+                                                           avg_testing_time_wall = testing_wall_array[i] /10,
+                                                           avg_training_time_cpu = training_cpu_array[i] /10,
+                                                           avg_testing_time_cpu = testing_cpu_array[i] /10,
+                                                           library = lib,
+                                                           kernel = kernel,
+                                                           sample_size = N,
+                                                           sigma = sigma,
+                                                           alpha = alpha,
+                                                           seed = 0)
 
 
-sigma = 200
-alpha = 1e-6
-
-krr_array = np.empty((13, 2, 2), dtype=object) 
-for l, kernel in enumerate(["laplacian", "gaussian"]):
-    for k, lib in enumerate(["qml", "scikit-learn"]):
-        mae_array = np.zeros((13,))
-        training_wall_array = np.zeros((13,))
-        testing_wall_array = np.zeros((13,))
-        training_cpu_array = np.zeros((13,))
-        testing_cpu_array = np.zeros((13,))
-        for j in range(1, 11):
-            for i in range(20):
-                N = pow(2, i+1)
-                if N > 10000:
-                    break
-                X_copy = X.copy()
-                y_copy = y.copy()
-                np.random.seed(j)
-                np.random.shuffle(X_copy)
-                np.random.seed(j)
-                np.random.shuffle(y_copy)
-                X_train = X_copy[:N]
-                y_train = y_copy[:N]
-                avg_mae = 0
-                X_test = X_copy[9000:]#Taking remaining 1000 samples
-                y_test = y_copy[9000:]
-                krr_ins = KRR(alpha=alpha, library = lib, sigma = sigma, kernel=kernel, seed = j)
-                krr_ins.fit(X_train, y_train)
-                training_wall_array[i] += krr_ins.training_time_wall
-                training_cpu_array[i] += krr_ins.training_time_cpu
-                
-                #Strictly for evaluation time comparisions. Bad for MAE calculations as training data is used for testing
-                X_test_time = X_copy[:N] 
-                krr_ins.predict(X_test_time)
-                testing_wall_array[i] += krr_ins.testing_time_wall
-                testing_cpu_array[i] += krr_ins.testing_time_cpu
-                
-                krr_ins.compute_mae(X_test, y_test)
-                mae_array[i] += krr_ins.mae
-
-                if j == 10:
-                    krr_array[i, k, l] = KRR_benchmark(avg_mae = mae_array[i] /10,
-                                                       avg_training_time_wall = training_wall_array[i] /10, 
-                                                       avg_testing_time_wall = testing_wall_array[i] /10,
-                                                       avg_training_time_cpu = training_cpu_array[i] /10,
-                                                       avg_testing_time_cpu = testing_cpu_array[i] /10,
-                                                       library = lib,
-                                                       kernel = kernel,
-                                                       sample_size = N,
-                                                       sigma = sigma,
-                                                       alpha = alpha,
-                                                       seed = 0)
+    # In[5]:
 
 
-# In[5]:
-
-
-outfile = "/home/ssunar/Thesis/data/output_data_new/KRR_thread_" + str(thread) + ".npy"
-np.save(outfile, krr_array)
+    outfile = "/home/ssunar/Thesis/data/output_data_new/KRR_thread_" + str(thread) + ".npy"
+    np.save(outfile, krr_array)
 
 
 
