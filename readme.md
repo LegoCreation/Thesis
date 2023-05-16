@@ -5,8 +5,8 @@
 ```bash
 git clone https://github.com/LegoCreation/Thesis.git
 cd Thesis/
-python3 -m venv new-ml
-source new-ml/bin/activate
+conda create --name new-ml
+conda activate new-ml
 pip3 install -r requirements.txt
 ```
 ## Usage guide
